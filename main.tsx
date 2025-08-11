@@ -3,13 +3,11 @@ import ReactDOM from 'react-dom/client';
 import UploadView from './components/UploadView';
 import QuizView from './components/QuizView';
 import ResultsView from './components/ResultsView';
-// @ts-ignore: GoogleGenAI types may not be available
-import { GoogleGenAI } from "@google/genai";
-// import { FaGraduationCap } from 'react-icons/fa'; // kaldırıldı
+import OpenAI from 'openai';
 
 // --- AI Setup ---
-const API_KEY = 'AIzaSyBU-M-8N5DuIPeIVAv8Qvgtg5QzwdOfl1o';
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+const openai = new OpenAI({ apiKey: API_KEY });
 
 // --- Helper Types ---
 type QuizMode = 'gap' | 'clue' | 'translation';
@@ -32,17 +30,27 @@ interface QuizResult {
 async function extractWordsFromImage(imageData: string): Promise<string[]> {
   const prompt = "Analysiere das folgende Bild, extrahiere alle französischen oder englischen Wörter in einer Liste. Trenne die Wörter mit einem Komma. Ignoriere Zahlen oder Sätze. Gib nur die kommagetrennte Liste der Wörter zurück.";
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: {
-        parts: [
-          { inlineData: { mimeType: 'image/jpeg', data: imageData } },
-          { text: prompt }
-        ]
-      },
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${imageData}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 500
     });
-    const wordList = response.text
-      ? response.text.split(',').map(word => word.trim().replace(/[".]/g, '')).filter(word => word.length > 1 && !/\d/.test(word))
+    
+    const wordList = response.choices[0]?.message?.content
+      ? response.choices[0].message.content.split(',').map(word => word.trim().replace(/[".]/g, '')).filter(word => word.length > 1 && !/\d/.test(word))
       : [];
     return Array.from(new Set(wordList));
   } catch (error) {
@@ -54,8 +62,12 @@ async function extractWordsFromImage(imageData: string): Promise<string[]> {
 async function createGapText(word: any): Promise<string> {
   const prompt = `Erstelle aus dem Wort \"${word}\" eine Lückentext-Frage, um die Rechtschreibung zu testen. Ersetze etwa 30-50% der Buchstaben (aber nicht den ersten) mit Unterstrichen. Gib nur den Lückentext zurück. Beispiel: für \"Beispiel\" könntest du \"B__sp__l\" zurückgeben.`;
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-    return response.text ? response.text.trim() : '';
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 100
+    });
+    return response.choices[0]?.message?.content ? response.choices[0].message.content.trim() : '';
   } catch (error) {
     console.error("Error creating gap text:", error);
     return word[0] + '_'.repeat(word.length - 1);
@@ -64,8 +76,12 @@ async function createGapText(word: any): Promise<string> {
 async function createClueForWord(word: any): Promise<string> {
   const prompt = `Erstelle einen sehr kurzen, einfachen Hinweis oder eine Definition auf Deutsch für das Wort \"${word}\". Das Wort selbst darf nicht im Hinweis vorkommen. Gib nur den Hinweis zurück.`;
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-    return response.text ? response.text.trim() : '';
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 100
+    });
+    return response.choices[0]?.message?.content ? response.choices[0].message.content.trim() : '';
   } catch (error) {
     console.error("Error creating clue:", error);
     return "Hinweis konnte nicht geladen werden.";
@@ -74,8 +90,12 @@ async function createClueForWord(word: any): Promise<string> {
 async function getTranslation(word: string, from: string, to: string): Promise<string> {
   const prompt = `Übersetze das ${from}e Wort \"${word}\" nach ${to}. Antworte nur mit dem übersetzten Wort, ohne Artikel oder zusätzliche Erklärung.`;
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-    return response.text ? response.text.trim() : '';
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 50
+    });
+    return response.choices[0]?.message?.content ? response.choices[0].message.content.trim() : '';
   } catch (error) {
     console.error(`Error translating ${word} from ${from} to ${to}:`, error);
     return "";
